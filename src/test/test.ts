@@ -1,1 +1,6 @@
-console.log('hello world!')
+// test
+
+test("test", () => {
+    expect(1).toBe(1);
+});
+

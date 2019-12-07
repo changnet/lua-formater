@@ -1,5 +1,8 @@
 The step i build this package.
 
+https://github.com/wookieb/predicates
+https://github.com/phenomnomnominal/tsquery
+
 1. git clone https://github.com/changnet/lua-formater.git
 2. cd lua-formater
 3. npm i typescript -g
