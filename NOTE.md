@@ -44,9 +44,9 @@ I work with vs code, it come with tsc,no need to install a global one.
 ## clang-format
 https://github.com/llvm-mirror/clang/blob/master/tools/clang-format/ClangFormat.cpp
 
-1. main() @ tools/clang-format/ClangFormat.cpp
-2. static bool format(StringRef FileName) @ tools/clang-format/ClangFormat.cpp
-3. reformat(const FormatStyle &Style, @ lib\Format\Format.cpp
+* main() @ tools/clang-format/ClangFormat.cpp
+* static bool format(StringRef FileName) @ tools/clang-format/ClangFormat.cpp
+* reformat(const FormatStyle &Style, @ lib\Format\Format.cpp
 ```cpp
 // reformat里，把函数放进Passes里，最后一个函数是
   Passes.emplace_back([&](const Environment &Env) {
@@ -57,11 +57,13 @@ https://github.com/llvm-mirror/clang/blob/master/tools/clang-format/ClangFormat.
 // 把格式化参数传给FormatTokenLexer
 // 然后parser用FormatTokenLexer来解析token
 // token的解析在UnwrappedLineParser::parseLevel
+// Whitespaces.generateReplacements 这里进行断行，空格对齐
 ```
-4. Formatter(Env, Expanded, Status).process() @ lib\Format\Format.cpp
-5. TokenAnalyzer::process @ lib\Format\TokenAnalyzer.cpp
-5. FormatTokenLexer::lex() @ lib\Format\FormatTokenLexer.cpp
-6. UnwrappedLineParser::parseLevel @ lib\Format\UnwrappedLineParser.cpp
+* Formatter(Env, Expanded, Status).process() @ lib\Format\Format.cpp
+* TokenAnalyzer::process @ lib\Format\TokenAnalyzer.cpp
+* FormatTokenLexer::lex() @ lib\Format\FormatTokenLexer.cpp
+* UnwrappedLineParser::parseLevel @ lib\Format\UnwrappedLineParser.cpp
+* Whitespaces.generateReplacements @ lib\Format\WhitespaceManager.cpp
 
 ```ts
 // 扩展token，把注释放到列表中的对应位置
@@ -79,3 +81,11 @@ for (let token of tokenList) {
     
 }
 ```
+
+< 用luaparser解析代码，和token对比，这样就可以知道当前表达式的类型
+< 不能解析的怎么办？
+
+## luaparse
+* parseChunk
+* parseBlock
+
