@@ -1,3 +1,5 @@
+import * as assert from 'assert';
+
 import {
     Options,
     parse as luaParse,
@@ -18,6 +20,7 @@ import {
     TableConstructorExpression,
     CallStatement
 } from 'luaparse';
+import { AssertionError } from 'assert';
 
 // LuaTokenType
 enum LTT {
@@ -37,9 +40,23 @@ interface TokenEx extends Token {
     comment?: Comment;
 }
 
+enum CodeBlockType {
+    Unknow = 0,
+    Function = 1,
+}
+
+// 代码块
+interface CodeBlock {
+    type: CodeBlockType;
+    token: TokenEx[];
+    sub?: CodeBlock[];
+}
+
 export class Formater {
     private index = 0; // tokens的下标
     private tokens = new Array<TokenEx>();
+    private blocks = new Array<CodeBlock>();
+    private curBlock: CodeBlock | null = null;
 
     // 消耗一个token
     private consume(): TokenEx | null {
@@ -81,38 +98,81 @@ export class Formater {
         } while (token.type !== LTT.EOF);
     }
 
+    // 开启新的代码块
+    private blockBegin(first: TokenEx) {
+        this.curBlock = {
+            type: CodeBlockType.Unknow,
+            token: [first],
+        };
+    }
+
+    // 结束当前解析的代码块
+    private blockEnd(type: CodeBlockType) {
+        assert(this.curBlock);
+
+        this.curBlock!.type = type;
+        this.blocks.push(this.curBlock!);
+    }
+
     // 格式化函数声明
-    private formatFunction() {
+    private parseFunction() {
         let token;
         do {
             token = this.consume();
             console.log(JSON.stringify(token));
         } while (!token
             || (token.type === LTT.Punctuator && token.value === "("));
+
+        this.blockEnd(CodeBlockType.Function);
+    }
+
+    // 对要格式化的代码进行语法解析
+    private doParse() {
+        let token;
+        do {
+            token = this.consume();
+            if (!token) {
+                return;
+            }
+
+
+            this.blockBegin(token);
+            if (LTT.Keyword === token.type) {
+                switch (token.value) {
+                    case "function": this.parseFunction(); break;
+                    // "if"
+                    // "return"
+                    // "function"
+                    // "while"
+                    // "for"
+                    // "repeat"
+                    // "break"
+                    // "do"
+                    // "goto"
+                }
+            }
+        } while (token);
+    }
+
+    // 格式化函数
+    private formatFunction(block: CodeBlock) {
+        // 如何计算断行
+        // 什么时候把内容写入文件。是先拼成string再写入，还是格式化单个block直接写入
+    }
+
+    // 对解析好的代码块进行格式化
+    private doFormat() {
+        for (const block of this.blocks) {
+            switch (block.type) {
+                case CodeBlockType.Function: this.formatFunction(block); break;
+            }
+        }
     }
 
     // 参考 luaparse.js parseStatement
-    public doFormat(ctx: string) {
+    public format(ctx: string) {
         this.doLex(ctx);
-
-        const token = this.consume();
-        if (!token) {
-            return;
-        }
-
-        if (LTT.Keyword === token.type) {
-            switch (token.value) {
-                case "function": this.formatFunction(); break;
-                // "if"
-                // "return"
-                // "function"
-                // "while"
-                // "for"
-                // "repeat"
-                // "break"
-                // "do"
-                // "goto"
-            }
-        }
+        this.doParse();
+        this.doFormat();
     }
 }
