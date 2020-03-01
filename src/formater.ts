@@ -49,8 +49,12 @@ enum CodeBlockType {
 // 代码块
 interface CodeBlock {
     type: CodeBlockType;
-    token: TokenEx[];
     sub?: CodeBlock[];
+}
+
+interface FunctionBlock extends CodeBlock {
+    name: string;
+    parameters: TokenEx[];
 }
 
 export class Formater {
@@ -107,24 +111,8 @@ export class Formater {
         } while (token.type !== LTT.EOF);
     }
 
-    // 开启新的代码块
-    private blockBegin(first: TokenEx) {
-        this.curBlock = {
-            type: CodeBlockType.Unknow,
-            token: [first],
-        };
-    }
-
-    // 结束当前解析的代码块
-    private blockEnd(type: CodeBlockType) {
-        assert(this.curBlock);
-
-        this.curBlock!.type = type;
-        this.blocks.push(this.curBlock!);
-    }
-
     // 格式化函数声明
-    private parseFunction() {
+    private parseFunction(): FunctionBlock {
         let token;
 
         // 函数名
@@ -141,7 +129,7 @@ export class Formater {
         console.log(`function name ${name}`);
 
         // 参数
-        let paramters = new Array<string>();
+        let paramters = new Array<TokenEx>();
         do {
             token = this.consume();
             if (!token || token.value === ")") {
@@ -153,7 +141,7 @@ export class Formater {
             }
 
             // TODO: 这里需要过滤注释
-            paramters.push(token.value);
+            paramters.push(token);
         } while (true);
         console.log(`function paraters ${JSON.stringify(paramters)}`);
 
@@ -162,25 +150,16 @@ export class Formater {
         token = this.consume();
         assert(token && token.value === "end");
 
-        // 写入函数注释
-        // 计算整个函数能否放到同一行
-        // 写入函数名
-        // 计算参数断行、对齐并写入参数
-        // 写入函数内容
-        // 写入end
-
-        // TODO: 有些对齐需要知道一个codeblock才知道如何处理，如 注释对齐
-        // local a = 123, -- a
-        // local b = 12345678, -- b
-
-        this.blockEnd(CodeBlockType.Function);
+        return {
+            type: CodeBlockType.Function,
+            name: name,
+            parameters: paramters
+        };
     }
 
     // 对代码进行语法解析并格式化
     // 参考 luaparse.js parseStatement
-    // 边解析边格式化，这样可以知道注释和代码的相对位置，原始的断行等信息，更容易处理
-    // 如果解析完后再格式化，很多信息就没了
-    private doFormat() {
+    private doParse() {
         let token;
         do {
             token = this.consume();
@@ -188,10 +167,10 @@ export class Formater {
                 break;
             }
 
-            this.blockBegin(token);
+            let block: CodeBlock | null = null;
             if (LTT.Keyword === token.type) {
                 switch (token.value) {
-                    case "function": this.parseFunction(); break;
+                    case "function": block = this.parseFunction(); break;
                     // "if"
                     // "return"
                     // "function"
@@ -202,12 +181,56 @@ export class Formater {
                     // "do"
                     // "goto"
                 }
+
+                if (block) {
+                    this.blocks.push(block);
+                }
             }
         } while (token);
     }
 
+    // 格式化函数
+    private formatFunction(block: FunctionBlock) {
+        // 注释
+        // local及函数名
+        this.appendFormated(0, "function ");
+        this.appendFormated(0, block.name);
+
+        // 参数
+        let first = true;
+        this.appendFormated(0, "(");
+        for (const param of block.parameters) {
+            if (!first) {
+                this.appendFormated(0, ", ");
+            }
+            first = false;
+            this.appendFormated(0, param.value);
+            // TODO: 处理一下在参数中的注释
+        }
+        this.appendFormated(0, ")");
+
+        // 函数内容
+        // end
+        this.appendFormated(0, " ");
+        this.appendFormated(0, "end");
+    }
+
+    // 格式化代码
+    private doFormat() {
+        for (const block of this.blocks) {
+            switch (block.type) {
+                case CodeBlockType.Function:
+                    this.formatFunction(block as FunctionBlock);
+                    break;
+            }
+        }
+    }
+
     public format(ctx: string) {
         this.doLex(ctx);
+        this.doParse();
         this.doFormat();
+
+        return this.formatedCtx;
     }
 }
