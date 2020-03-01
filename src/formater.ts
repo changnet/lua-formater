@@ -1,5 +1,7 @@
 import * as assert from 'assert';
 
+import { Setting } from "./setting";
+
 import {
     Options,
     parse as luaParse,
@@ -20,7 +22,6 @@ import {
     TableConstructorExpression,
     CallStatement
 } from 'luaparse';
-import { AssertionError } from 'assert';
 
 // LuaTokenType
 enum LTT {
@@ -57,6 +58,7 @@ export class Formater {
     private tokens = new Array<TokenEx>();
     private blocks = new Array<CodeBlock>();
     private curBlock: CodeBlock | null = null;
+    private formatedCtx = ""; // 格式化后的内容
 
     // 消耗一个token
     private consume(): TokenEx | null {
@@ -66,6 +68,13 @@ export class Formater {
 
         let index = this.index++;
         return this.tokens[index];
+    }
+
+    // 添加格式化后的内容
+    private appendFormated(indent: number, ctx: string) {
+        // 写入缩进
+
+        this.formatedCtx += ctx;
     }
 
     // 词法解析
@@ -117,24 +126,67 @@ export class Formater {
     // 格式化函数声明
     private parseFunction() {
         let token;
+
+        // 函数名
+        let name = "";
         do {
             token = this.consume();
-            console.log(JSON.stringify(token));
-        } while (!token
-            || (token.type === LTT.Punctuator && token.value === "("));
+            if (!token || token.value === "(") {
+                break;
+            }
+
+            // TODO: 这里需要过滤注释
+            name = name + token.value;
+        } while (true);
+        console.log(`function name ${name}`);
+
+        // 参数
+        let paramters = new Array<string>();
+        do {
+            token = this.consume();
+            if (!token || token.value === ")") {
+                break;
+            }
+
+            if (token.value === ",") {
+                continue;
+            }
+
+            // TODO: 这里需要过滤注释
+            paramters.push(token.value);
+        } while (true);
+        console.log(`function paraters ${JSON.stringify(paramters)}`);
+
+        // 函数内容
+        // 函数结束
+        token = this.consume();
+        assert(token && token.value === "end");
+
+        // 写入函数注释
+        // 计算整个函数能否放到同一行
+        // 写入函数名
+        // 计算参数断行、对齐并写入参数
+        // 写入函数内容
+        // 写入end
+
+        // TODO: 有些对齐需要知道一个codeblock才知道如何处理，如 注释对齐
+        // local a = 123, -- a
+        // local b = 12345678, -- b
 
         this.blockEnd(CodeBlockType.Function);
     }
 
-    // 对要格式化的代码进行语法解析
-    private doParse() {
+    // 对代码进行语法解析并格式化
+    // 参考 luaparse.js parseStatement
+    // 边解析边格式化，这样可以知道注释和代码的相对位置，原始的断行等信息，更容易处理
+    // 如果解析完后再格式化，很多信息就没了
+    private doFormat() {
         let token;
         do {
             token = this.consume();
             if (!token) {
-                return;
+                break;
             }
-
 
             this.blockBegin(token);
             if (LTT.Keyword === token.type) {
@@ -154,25 +206,8 @@ export class Formater {
         } while (token);
     }
 
-    // 格式化函数
-    private formatFunction(block: CodeBlock) {
-        // 如何计算断行
-        // 什么时候把内容写入文件。是先拼成string再写入，还是格式化单个block直接写入
-    }
-
-    // 对解析好的代码块进行格式化
-    private doFormat() {
-        for (const block of this.blocks) {
-            switch (block.type) {
-                case CodeBlockType.Function: this.formatFunction(block); break;
-            }
-        }
-    }
-
-    // 参考 luaparse.js parseStatement
     public format(ctx: string) {
         this.doLex(ctx);
-        this.doParse();
         this.doFormat();
     }
 }

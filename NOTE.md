@@ -89,3 +89,13 @@ for (let token of tokenList) {
 * parseChunk
 * parseBlock
 
+```lua
+--[[函数注释]]
+function test(a, -- 参数a
+  b, -- 参数b
+  c,)
+end
+
+function test(a --[[参数a]], b --[[参数b]], c)
+end
+```

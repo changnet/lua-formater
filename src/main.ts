@@ -2,5 +2,5 @@ import { Formater } from "./formater";
 
 // node out/main.js
 let fmt = new Formater();
-fmt.format("function test( a, b , c ) end");
+fmt.format("function a.test( a, b , c ) end");
 
