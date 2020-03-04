@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "module": "commonjs",
+    "declaration": true,
     "target": "es6",
     "outDir": "out",
     "lib": [
@@ -17,6 +18,7 @@
   },
   "exclude": [
     "node_modules",
-    "test"
+    "test",
+    "out"
   ]
 }

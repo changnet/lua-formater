@@ -39,29 +39,39 @@ enum LTT {
 
 interface TokenEx extends Token {
     comment?: Comment;
+
+    /*
+    inline comment
+    test(a--[[aaaa]], b, c)
+    "aaaa" is a's inline comment
+    */
+    inlineCmt?: Token[];
 }
 
-enum CodeBlockType {
+enum BlockType {
     Unknow = 0,
     Function = 1,
 }
 
-// 代码块
-interface CodeBlock {
-    type: CodeBlockType;
-    sub?: CodeBlock[];
+interface BaseBlock<T> {
+    bType: T;
+    aboveCmt?: TokenEx[];
+    rightCmt?: TokenEx[];
 }
 
-interface FunctionBlock extends CodeBlock {
-    name: string;
+interface FunctionBlock extends BaseBlock<BlockType.Function> {
+    name: TokenEx[];
     parameters: TokenEx[];
+    body: Block[];
+    end: TokenEx;
 }
+
+type Block = FunctionBlock;
 
 export class Formater {
     private index = 0; // tokens的下标
     private tokens = new Array<TokenEx>();
-    private blocks = new Array<CodeBlock>();
-    private curBlock: CodeBlock | null = null;
+    private blocks = new Array<Block>();
     private formatedCtx = ""; // 格式化后的内容
 
     // 消耗一个token
@@ -116,7 +126,7 @@ export class Formater {
         let token;
 
         // 函数名
-        let name = "";
+        let name = new Array<TokenEx>();
         do {
             token = this.consume();
             if (!token || token.value === "(") {
@@ -124,9 +134,8 @@ export class Formater {
             }
 
             // TODO: 这里需要过滤注释
-            name = name + token.value;
+            name.push(token);
         } while (true);
-        console.log(`function name ${name}`);
 
         // 参数
         let paramters = new Array<TokenEx>();
@@ -143,17 +152,18 @@ export class Formater {
             // TODO: 这里需要过滤注释
             paramters.push(token);
         } while (true);
-        console.log(`function paraters ${JSON.stringify(paramters)}`);
 
         // 函数内容
         // 函数结束
-        token = this.consume();
-        assert(token && token.value === "end");
+        const endToken = this.consume();
+        assert(endToken && endToken.value === "end");
 
         return {
-            type: CodeBlockType.Function,
+            bType: BlockType.Function,
             name: name,
-            parameters: paramters
+            parameters: paramters,
+            body: [],
+            end: endToken!
         };
     }
 
@@ -167,7 +177,7 @@ export class Formater {
                 break;
             }
 
-            let block: CodeBlock | null = null;
+            let block: Block | null = null;
             if (LTT.Keyword === token.type) {
                 switch (token.value) {
                     case "function": block = this.parseFunction(); break;
@@ -194,7 +204,11 @@ export class Formater {
         // 注释
         // local及函数名
         this.appendFormated(0, "function ");
-        this.appendFormated(0, block.name);
+
+        // 函数名
+        for (const token of block.name) {
+            this.appendFormated(0, token.value);
+        }
 
         // 参数
         let first = true;
@@ -218,9 +232,9 @@ export class Formater {
     // 格式化代码
     private doFormat() {
         for (const block of this.blocks) {
-            switch (block.type) {
-                case CodeBlockType.Function:
-                    this.formatFunction(block as FunctionBlock);
+            switch (block.bType) {
+                case BlockType.Function:
+                    this.formatFunction(block);
                     break;
             }
         }

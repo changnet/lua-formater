@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { Formater } from "./formater";
 
 // node out/main.js

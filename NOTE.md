@@ -19,6 +19,24 @@ If you have a single executable, and its name should be the name of the package,
 https://github.com/wookieb/predicates
 https://github.com/phenomnomnominal/tsquery
 
+如何创建可从cmd运行的node.js库：
+https://medium.com/@thatisuday/creating-cli-executable-global-npm-module-5ef734febe32
+
+记得在 main.ts 加上
+```ts
+#!/usr/bin/env node
+```
+
+#### 测试
+vs code运行一次build任务后，会在后台监视文件变动并实时编译，不需要再手动编译
+1. node out/main.js
+2. 模拟包安装
+```shell
+cd lua-formater
+npm link
+lua-formater
+```
+
 1. git clone https://github.com/changnet/lua-formater.git
 2. cd lua-formater
 3. npm i typescript -g

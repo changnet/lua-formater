@@ -4,6 +4,7 @@
 	"version": "1.0.0",
 	"main": "lua-formater.js",
 	"bin": "./out/main.js",
+	"types": "./out/index.d.ts",
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -p ./",
