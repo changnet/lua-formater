@@ -1,5 +1,5 @@
-This is my first package.
-The step i build this package.
+This is my first node.js package.
+Just write down the steps I build this package.
 
 ## package.json
 https://docs.npmjs.com/files/package.json
@@ -27,16 +27,7 @@ https://medium.com/@thatisuday/creating-cli-executable-global-npm-module-5ef734f
 #!/usr/bin/env node
 ```
 
-#### 测试
-vs code运行一次build任务后，会在后台监视文件变动并实时编译，不需要再手动编译
-1. node out/main.js
-2. 模拟包安装
-```shell
-cd lua-formater
-npm link
-lua-formater
-```
-
+#### 初始化
 1. git clone https://github.com/changnet/lua-formater.git
 2. cd lua-formater
 3. npm i typescript -g
@@ -58,6 +49,23 @@ tslint --init
 I work with vs code, it come with tsc,no need to install a global one.
 
 5. configure task.json
+
+#### 导出符号types
+1. 在tsconfig.json的compilerOptions中添加 "declaration": true,
+2. 在tsconfig.json的exclude中添加输出目录out
+3. 在package.json中添加 "types": "./out/index.d.ts",
+
+https://www.typescriptlang.org/docs/handbook/declaration-files/publishing.html
+
+#### 测试
+vs code运行一次build任务后，会在后台监视文件变动并实时编译，不需要再手动编译
+1. node out/main.js
+2. 模拟包安装
+```shell
+cd lua-formater
+npm link
+lua-formater
+```
 
 ## clang-format
 https://github.com/llvm-mirror/clang/blob/master/tools/clang-format/ClangFormat.cpp

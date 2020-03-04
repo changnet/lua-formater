@@ -2,7 +2,7 @@
 	"name": "lua-formater",
 	"description": "Lua Code formater",
 	"version": "1.0.0",
-	"main": "lua-formater.js",
+	"main": "./out/index.js",
 	"bin": "./out/main.js",
 	"types": "./out/index.d.ts",
 	"scripts": {
