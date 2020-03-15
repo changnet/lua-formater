@@ -52,6 +52,7 @@ export enum BlockType {
     Unknow = 0,
     Comment = 1,
     Function = 2,
+    Assignment = 3,
 }
 
 interface BaseBlock<T> {
@@ -60,6 +61,9 @@ interface BaseBlock<T> {
     rightCmt?: TokenEx[];
 }
 
+// 变量名，可包含多个token，如 A.B.c = 1中的 A.B.c
+type TokenList = TokenEx[];
+
 // 独立注释
 export interface CommentBlock extends BaseBlock<BlockType.Comment> {
     body: TokenEx[];
@@ -67,19 +71,31 @@ export interface CommentBlock extends BaseBlock<BlockType.Comment> {
 
 // 函数
 export interface FunctionBlock extends BaseBlock<BlockType.Function> {
-    name: TokenEx[];
+    local: boolean;
+    name: TokenList; // 包含 A.test 或 A:test
     parameters: TokenEx[];
     body: Block[];
     end: TokenEx;
 }
 
-export type Block = FunctionBlock | CommentBlock;
+// 赋值
+export interface AssignmentBlock extends BaseBlock<BlockType.Assignment> {
+    local: boolean;
+    name: TokenList[]; // 多个名字 a, b = 1, 1 + 2
+    body: Block[];
+}
+
+export type Block = FunctionBlock | CommentBlock | AssignmentBlock;
 
 export class Parser {
     private index = 0; // tokens的下标
     private tokens = new Array<TokenEx>();
     private blocks = new Array<Block>();
 
+    private error(message?: string, token?: TokenEx) {
+        let syntax = new SyntaxError(message);
+        throw syntax;
+    }
 
     private peek(): TokenEx | null {
         if (this.index >= this.tokens.length) {
@@ -94,13 +110,18 @@ export class Parser {
     }
 
     // 消耗一个token
-    private consume(): TokenEx | null {
+    private consume(value?: string): TokenEx | null {
         if (this.index >= this.tokens.length) {
             return null;
         }
 
-        let index = this.index++;
-        return this.tokens[index];
+        const token = this.tokens[this.index];
+        if (!value || token.value === value) {
+            this.index++;
+            return token;
+        }
+
+        return null;
     }
 
     // 检测下一个token是否为想要的token
@@ -144,10 +165,33 @@ export class Parser {
         });
 
         let token;
-        do {
+        while (true) {
             token = parser.lex();
-            this.tokens.push(token);
-        } while (token.type !== LTT.EOF);
+            if (token.type !== LTT.EOF) {
+                this.tokens.push(token);
+            }
+            else {
+                break;
+            }
+        }
+    }
+
+    // 解析变量名
+    private parseIdentifier() {
+        let identifier = new Array<TokenEx>();
+
+        let token = this.peek();
+        while (token) {
+            if (token.type === LTT.Identifier
+                || token.value === "." || token.value === ":") {
+                identifier.push(token);
+                this.next();
+            } else {
+                break;
+            }
+        }
+
+        return identifier;
     }
 
     // 解析连续的注释
@@ -161,7 +205,7 @@ export class Parser {
 
         let lastLine = -1;
         let comments = new Array<TokenEx>();
-        while (token && LTT.EOF !== token.type) {
+        while (token) {
             // 遇到非注释代码，则当前注释不是独立的，返回给其他代码块处理
             if (token.type !== LTT.Comment) {
                 return comments;
@@ -188,7 +232,7 @@ export class Parser {
     }
 
     // 解析函数声明
-    private parseFunction(): FunctionBlock {
+    private parseFunction(local = false): FunctionBlock {
         let token;
 
         // 函数名
@@ -233,10 +277,55 @@ export class Parser {
 
         return {
             bType: BlockType.Function,
+            local: local,
             name: name,
             parameters: paramters,
             body: [],
             end: endToken!
+        };
+    }
+
+    // 解析local声明
+    private parseLocalStatement(): Block {
+        const token = this.consume();
+        if (!token) {
+            this.error("expect local statement");
+        }
+
+        // local function test() end
+        if (token!.value === "function") {
+            return this.parseFunction(true);
+        }
+
+        // local a, b = 1, 2 + 1
+        return this.parseAssignment(true);
+    }
+
+    // 解析表达式
+    private parseExpression() {
+
+    }
+
+    // 解析赋值操作
+    private parseAssignment(local = false): AssignmentBlock {
+        // 解析变量名 A.b, c = 1, test()
+        let names = new Array<TokenList>();
+
+        do {
+            let name = this.parseIdentifier();
+            names.push(name);
+
+        } while (this.consume(","));
+
+        if (this.consume("=")) {
+            this.parseExpression();
+        }
+
+        return {
+            bType: BlockType.Assignment,
+            local: local,
+            name: names,
+            body: []
         };
     }
 
@@ -256,6 +345,7 @@ export class Parser {
                 this.next();
                 switch (token.value) {
                     case "function": block = this.parseFunction(); break;
+                    case "local": block = this.parseLocalStatement(); break;
                     // "if"
                     // "return"
                     // "function"
