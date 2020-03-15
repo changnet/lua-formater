@@ -4,6 +4,17 @@ import { Formater } from "./formater";
 
 // node out/main.js
 let fmt = new Formater();
-const ctx = fmt.format("function a.test( a, b , c ) end");
-console.log(ctx);
 
+// test comment
+const comment = `-- abc
+-- def
+
+-- xyz
+
+--[[123]] --[[456]]
+`;
+console.log(fmt.format(comment));
+
+// test function
+const func = `function a.test( a, b , c ) end`
+console.log(fmt.format(func));

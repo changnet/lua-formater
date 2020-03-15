@@ -22,6 +22,7 @@ import {
     TableConstructorExpression,
     CallStatement
 } from 'luaparse';
+import { timingSafeEqual } from 'crypto';
 
 // LuaTokenType
 enum LTT {
@@ -38,7 +39,7 @@ enum LTT {
 }
 
 interface TokenEx extends Token {
-    comment?: Comment;
+    comment?: Node; // 扩展Token，允许注释和其他Node存放在一数组内
 
     /*
     inline comment
@@ -50,7 +51,8 @@ interface TokenEx extends Token {
 
 enum BlockType {
     Unknow = 0,
-    Function = 1,
+    Comment = 1,
+    Function = 2,
 }
 
 interface BaseBlock<T> {
@@ -59,6 +61,12 @@ interface BaseBlock<T> {
     rightCmt?: TokenEx[];
 }
 
+// 独立注释
+interface CommentBlock extends BaseBlock<BlockType.Comment> {
+    body: TokenEx[];
+}
+
+// 函数
 interface FunctionBlock extends BaseBlock<BlockType.Function> {
     name: TokenEx[];
     parameters: TokenEx[];
@@ -66,7 +74,7 @@ interface FunctionBlock extends BaseBlock<BlockType.Function> {
     end: TokenEx;
 }
 
-type Block = FunctionBlock;
+type Block = FunctionBlock | CommentBlock;
 
 export class Formater {
     private index = 0; // tokens的下标
@@ -82,6 +90,20 @@ export class Formater {
 
         let index = this.index++;
         return this.tokens[index];
+    }
+
+    // 检测下一个token是否为想要的token
+    private peek(tokenType: LTT, value?: string) {
+        if (this.index >= this.tokens.length) {
+            return false;
+        }
+
+        const token = this.tokens[this.index + 1];
+        if (token.type === tokenType && (!value || value === token.value)) {
+            return true;
+        }
+
+        return false;
     }
 
     // 添加格式化后的内容
@@ -121,7 +143,45 @@ export class Formater {
         } while (token.type !== LTT.EOF);
     }
 
-    // 格式化函数声明
+    // 解析连续的注释
+    private parseComment(): TokenEx[] | null {
+        if (!this.peek(LTT.Comment)) {
+            return null;
+        }
+
+        let lastLine = -1;
+        let comments = new Array<TokenEx>();
+        do {
+            const token = this.consume()!;
+            const line = token.comment!.loc!.end.line;
+            // 一个注释块，必须是连续的，如果中间有空行，那就不算连续
+            // --[[abc]] --[[def]] 这种在同一行的也算
+            if (-1 === lastLine || line - lastLine <= 1) {
+                lastLine = line;
+                comments.push(token);
+            }
+        } while (this.peek(LTT.Comment));
+
+        return comments;
+    }
+
+    // 是否为独立的注释
+    private isIndepentComment(comments: TokenEx[], token: TokenEx | null) {
+        if (!token) {
+            return true;
+        }
+
+        // 一个注释块，必须是连续的，如果中间有空行，那就不算连续
+        // --[[abc]] --[[def]] 这种在同一行的也算
+        const last = comments[comments.length - 1];
+        if (token.comment!.loc!.end.line - last.comment!.loc!.end.line <= 1) {
+            return true;
+        }
+
+        return false;
+    }
+
+    // 解析函数声明
     private parseFunction(): FunctionBlock {
         let token;
 
@@ -149,8 +209,15 @@ export class Formater {
                 continue;
             }
 
-            // TODO: 这里需要过滤注释
             paramters.push(token);
+
+            // inline注释
+            while (this.peek(LTT.Comment)) {
+                if (!token.inlineCmt) {
+                    token.inlineCmt = new Array<TokenEx>();
+                }
+                token.inlineCmt.push(this.consume()!);
+            }
         } while (true);
 
         // 函数内容
@@ -172,7 +239,16 @@ export class Formater {
     private doParse() {
         let token;
         do {
+            const comments = this.parseComment();
             token = this.consume();
+
+            if (comments && this.isIndepentComment(comments, token)) {
+                this.blocks.push({
+                    bType: BlockType.Comment,
+                    body: comments
+                });
+            }
+
             if (!token) {
                 break;
             }
