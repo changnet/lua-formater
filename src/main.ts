@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 
+import { Setting } from "./setting";
 import { Formater } from "./formater";
 
 // node out/main.js
-let fmt = new Formater();
+
+let setting = new Setting();
+
+let fmt = new Formater(setting.parseSetting());
 
 // test comment
 const comment = `-- abc
@@ -16,5 +20,6 @@ const comment = `-- abc
 console.log(fmt.format(comment));
 
 // test function
-const func = `function a.test( a, b , c ) end`
+fmt = new Formater(setting.parseSetting());
+const func = `function a.test( a, b , c ) end`;
 console.log(fmt.format(func));
