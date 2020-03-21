@@ -49,10 +49,14 @@ export interface TokenEx extends Token {
 }
 
 export enum BlockType {
-    Unknow = 0,
-    Comment = 1,
-    Function = 2,
-    Assignment = 3,
+    Unknow = 0, // 无效
+    Comment = 1, // 注释
+    Function = 2, // 函数
+    Assignment = 3, // 赋值
+    Expression = 4, // 表达式
+    ConstValue = 5, // 常量(boolean、数字、字符串等)
+    Punctuator = 6, // 运算符(如 + = % >=)
+    CallExpr = 7, // 函数调用
 }
 
 interface BaseBlock<T> {
@@ -64,12 +68,12 @@ interface BaseBlock<T> {
 // 变量名，可包含多个token，如 A.B.c = 1中的 A.B.c
 type TokenList = TokenEx[];
 
-// 独立注释
+/** 独立注释 */
 export interface CommentBlock extends BaseBlock<BlockType.Comment> {
     body: TokenEx[];
 }
 
-// 函数
+/** 函数 */
 export interface FunctionBlock extends BaseBlock<BlockType.Function> {
     local: boolean;
     name: TokenList; // 包含 A.test 或 A:test
@@ -78,14 +82,36 @@ export interface FunctionBlock extends BaseBlock<BlockType.Function> {
     end: TokenEx;
 }
 
-// 赋值
+/** 赋值 */
 export interface AssignmentBlock extends BaseBlock<BlockType.Assignment> {
     local: boolean;
-    name: TokenList[]; // 多个名字 a, b = 1, 1 + 2
+    name: TokenList[]; // 多个名字 a, M.b = 1, 1 + 2
     body: Block[];
 }
 
-export type Block = FunctionBlock | CommentBlock | AssignmentBlock;
+/** 表达式 */
+export interface ExpressionBlock extends BaseBlock<BlockType.Expression> {
+    body: Block[];
+}
+
+/** 常量 */
+export interface ConstBlock extends BaseBlock<BlockType.ConstValue> {
+    body: TokenEx;
+}
+
+/** 运算符 */
+export interface PunctuatorBlock extends BaseBlock<BlockType.Punctuator> {
+    body: TokenEx[];
+}
+
+/** 函数调用 */
+export interface CallBlock extends BaseBlock<BlockType.CallExpr> {
+    name: TokenEx[];
+    args: Block[];
+}
+
+export type Block = FunctionBlock | CommentBlock | AssignmentBlock
+    | ExpressionBlock | ConstBlock | PunctuatorBlock | CallBlock;
 
 export class Parser {
     private index = 0; // tokens的下标
@@ -301,8 +327,55 @@ export class Parser {
         return this.parseAssignment(true);
     }
 
-    // 解析表达式
+    /** 是否为一元运算符*/
+    private isUnary(token: TokenEx) {
+        // local len = #list
+        if (LTT.Punctuator === token.type) {
+            return '#-~'.indexOf(token.value) >= 0;
+        }
+        // local a = not finish
+        if (LTT.Keyword === token.type) {
+            return 'not' === token.value;
+        }
+
+        return false;
+    }
+
+    /**
+     * 解析表达式
+     * 参考 luaparse.js parseSubExpression
+     */
+    private parseSubExpression() {
+        // luaparse中parseSubExpression是实现了一个有优先级的解释器
+        // 我们这里不需要考虑优先级
+
+        /**
+         *  表达式 = 前缀 + 后缀
+         * 
+         */
+
+        let token = this.peek();
+        while (token) {
+            if (LTT.Identifier === token.type) {
+
+            }
+        }
+        // 调用方式test()
+        // 函数声明
+        // 单独的变量，如: nil、字符串、数字。。。
+        // 带操作符，如: 1 + val and 1 or 2 + test()
+        // table，如 test({1, 2, 3, 4})
+    }
+
+    /**
+     * 解析表达式
+     * 参考 parseAssignmentOrCallStatement
+     */
     private parseExpression() {
+        do {
+
+        } while (this.consume(","));
+
 
     }
 

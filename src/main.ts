@@ -23,3 +23,11 @@ console.log(fmt.format(comment));
 fmt = new Formater(setting.parseSetting());
 const func = `function a.test( a, b , c ) end`;
 console.log(fmt.format(func));
+
+// test expression
+const expression = `local a,b,c=not true,1 + test(#list, {
+    a = 1, b = false, c = 1 + 2
+})
+`;
+fmt = new Formater(setting.parseSetting());
+console.log(fmt.format(expression));

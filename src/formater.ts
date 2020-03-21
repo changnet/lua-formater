@@ -47,6 +47,7 @@ export class Formater {
         this.appendFormated(setting.lineBreak);
         this.appendFormated(setting.lineBreak); // 相隔空行
     }
+
     // 格式化函数
     private formatFunction(block: FunctionBlock) {
         // 注释
