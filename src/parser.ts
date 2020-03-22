@@ -57,6 +57,7 @@ export enum BlockType {
     ConstValue = 5, // 常量(boolean、数字、字符串等)
     Punctuator = 6, // 运算符(如 + = % >=)
     CallExpr = 7, // 函数调用
+    Identifier = 8, // 变量名，如 a.b.c
 }
 
 interface BaseBlock<T> {
@@ -64,9 +65,6 @@ interface BaseBlock<T> {
     aboveCmt?: TokenEx[];
     rightCmt?: TokenEx[];
 }
-
-// 变量名，可包含多个token，如 A.B.c = 1中的 A.B.c
-type TokenList = TokenEx[];
 
 /** 独立注释 */
 export interface CommentBlock extends BaseBlock<BlockType.Comment> {
@@ -76,7 +74,7 @@ export interface CommentBlock extends BaseBlock<BlockType.Comment> {
 /** 函数 */
 export interface FunctionBlock extends BaseBlock<BlockType.Function> {
     local: boolean;
-    name: TokenList; // 包含 A.test 或 A:test
+    name: IdentifierBlock; // 包含 A.test 或 A:test
     parameters: TokenEx[];
     body: Block[];
     end: TokenEx;
@@ -85,7 +83,7 @@ export interface FunctionBlock extends BaseBlock<BlockType.Function> {
 /** 赋值 */
 export interface AssignmentBlock extends BaseBlock<BlockType.Assignment> {
     local: boolean;
-    name: TokenList[]; // 多个名字 a, M.b = 1, 1 + 2
+    name: IdentifierBlock[]; // 多个名字 a, M.b = 1, 1 + 2
     body: Block[];
 }
 
@@ -110,8 +108,14 @@ export interface CallBlock extends BaseBlock<BlockType.CallExpr> {
     args: Block[];
 }
 
+// 变量名 a.b.c
+export interface IdentifierBlock extends BaseBlock<BlockType.Identifier> {
+    body: TokenEx[];
+}
+
 export type Block = FunctionBlock | CommentBlock | AssignmentBlock
-    | ExpressionBlock | ConstBlock | PunctuatorBlock | CallBlock;
+    | ExpressionBlock | ConstBlock | PunctuatorBlock | CallBlock
+    | IdentifierBlock;
 
 export class Parser {
     private index = 0; // tokens的下标
@@ -203,7 +207,7 @@ export class Parser {
     }
 
     // 解析变量名
-    private parseIdentifier() {
+    private parseIdentifier(): IdentifierBlock {
         let identifier = new Array<TokenEx>();
 
         let token = this.peek();
@@ -217,7 +221,10 @@ export class Parser {
             }
         }
 
-        return identifier;
+        return {
+            bType: BlockType.Identifier,
+            body: identifier
+        };
     }
 
     // 解析连续的注释
@@ -259,21 +266,11 @@ export class Parser {
 
     // 解析函数声明
     private parseFunction(local = false): FunctionBlock {
-        let token;
-
         // 函数名
-        let name = new Array<TokenEx>();
-        do {
-            token = this.consume();
-            if (!token || token.value === "(") {
-                break;
-            }
-
-            // TODO: 这里需要过滤注释
-            name.push(token);
-        } while (true);
+        let name = this.parseIdentifier();
 
         // 参数
+        let token;
         let paramters = new Array<TokenEx>();
         do {
             token = this.consume();
@@ -341,48 +338,104 @@ export class Parser {
         return false;
     }
 
-    /**
-     * 解析表达式
-     * 参考 luaparse.js parseSubExpression
-     */
-    private parseSubExpression() {
-        // luaparse中parseSubExpression是实现了一个有优先级的解释器
-        // 我们这里不需要考虑优先级
+    private parseCallExpression(base: ExpressionBlock) {
 
-        /**
-         *  表达式 = 前缀 + 后缀
-         * 
-         */
+    }
+
+    // 参考lua parse parsePrefixExpression
+    //     前缀表达式
+    //     prefixexp ::= prefix {suffix}
+    //     prefix ::= Name | '(' exp ')' -> test | (tbl[idx])
+    //     suffix ::= '[' exp ']' | '.' Name | ':' Name args | args
+    //     -> test[index] | test.a | test:b | (a, b, c)
+    //
+    //     args ::= '(' [explist] ')' | tableconstructor | String
+    private parsePrefixExpression() {
+        let base;
 
         let token = this.peek();
-        while (token) {
-            if (LTT.Identifier === token.type) {
+        if (!token) {
+            return null;
+        }
 
+        // The prefix 开始解释前缀
+        if (LTT.Identifier === token.type) {
+            // a.b.c(1,2,3)中的a.b.c
+            base = this.parseIdentifier();
+        } else if (this.consume('(')) {
+            // (tbl)带括号的前缀
+            base = this.parseExpectedExpression();
+            expect(')');
+        } else {
+            return null;
+        }
+
+        // The suffix
+        var expression, identifier;
+        while (true) {
+            if (LTT.Punctuator === token.type) {
+                switch (token.value) {
+                    case '[':
+                        // 数组索引 test[1 + 2]
+                        this.next();
+                        expression = this.parseExpectedExpression();
+                        // base = finishNode(ast.indexExpression(base, expression));
+                        expect(']');
+                        break;
+                    case '.':
+                        // 成员 a.b
+                        this.next();
+                        identifier = this.parseIdentifier();
+                        //base = finishNode(ast.memberExpression(base, '.', identifier));
+                        break;
+                    case ':':
+                        // 成员 a:b
+                        this.next();
+                        identifier = this.parseIdentifier();
+                        //base = finishNode(ast.memberExpression(base, ':', identifier));
+                        // Once a : is found, this has to be a CallExpression, otherwise
+                        // throw an error.
+                        base = this.parseCallExpression(base);
+                        break;
+                    case '(': case '{': // args
+                        // 函数调用 print(a, b, c) | print {1, 2, 3}
+                        base = this.parseCallExpression(base);
+                        break;
+                    default:
+                        return base;
+                }
+            } else if (LTT.StringLiteral === token.type) {
+                // string call: print "abcdef"
+                base = this.parseCallExpression(base);
+            } else {
+                break;
             }
         }
-        // 调用方式test()
-        // 函数声明
-        // 单独的变量，如: nil、字符串、数字。。。
-        // 带操作符，如: 1 + val and 1 or 2 + test()
-        // table，如 test({1, 2, 3, 4})
+
+        return base;
     }
 
     /**
      * 解析表达式
      * 参考 parseAssignmentOrCallStatement
      */
-    private parseExpression() {
-        do {
+    private parseExpression(): ExpressionBlock | null {
+        return null;
+    }
 
-        } while (this.consume(","));
-
-
+    // 保证必须解析出一个表达式
+    private parseExpectedExpression() {
+        const expression = this.parseExpression();
+        if (!expression) {
+            this.error("expect a expression");
+        }
+        return expression;
     }
 
     // 解析赋值操作
     private parseAssignment(local = false): AssignmentBlock {
         // 解析变量名 A.b, c = 1, test()
-        let names = new Array<TokenList>();
+        let names = new Array<IdentifierBlock>();
 
         do {
             let name = this.parseIdentifier();

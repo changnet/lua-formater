@@ -92,36 +92,33 @@ https://github.com/llvm-mirror/clang/blob/master/tools/clang-format/ClangFormat.
 * Whitespaces.generateReplacements @ lib\Format\WhitespaceManager.cpp
 
 ```ts
-// 扩展token，把注释放到列表中的对应位置
-interface TokenEx exten Token {
+  //     赋值
+  //     assignment ::= varlist '=' explist
+  //     var ::= Name | prefixexp '[' exp ']' | prefixexp '.' Name
+  //     varlist ::= var {',' var} -> a, b
+  //     explist ::= exp {',' exp} -> a[idx], b[index]
+  //
+  //     call ::= callexp
+  //     callexp ::= prefixexp args | prefixexp ':' Name args
+  function parseAssignmentOrCallStatement() {}
 
-}
+  //     前缀表达式
+  //     prefixexp ::= prefix {suffix}
+  //     prefix ::= Name | '(' exp ')' -> test | (tbl[idx])
+  //     suffix ::= '[' exp ']' | '.' Name | ':' Name args | args
+  //     -> test[index] | test.a | test:b | (a, b, c)
+  //
+  //     args ::= '(' [explist] ')' | tableconstructor | String
 
-// local x = a b = 2
-// 必须要得语法，才知道要如何处理
+  function parsePrefixExpression() {}
 
-// 因此参考luaparse的解析，加上容错处理即可
+  //     exp ::= (unop exp | primary | prefixexp ) { binop exp }
+  //     -> not ok | { 1, 2} | ... 
 
-let tokenList = [];
-for (let token of tokenList) {
-    
-}
+  function parseSubExpression(minPrecedence) {}
 ```
-
-< 用luaparser解析代码，和token对比，这样就可以知道当前表达式的类型
-< 不能解析的怎么办？
 
 ## luaparse
 * parseChunk
 * parseBlock
 
-```lua
---[[函数注释]]
-function test(a, -- 参数a
-  b, -- 参数b
-  c,)
-end
-
-function test(a --[[参数a]], b --[[参数b]], c)
-end
-```

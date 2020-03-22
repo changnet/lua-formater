@@ -31,3 +31,6 @@ const expression = `local a,b,c=not true,1 + test(#list, {
 `;
 fmt = new Formater(setting.parseSetting());
 console.log(fmt.format(expression));
+
+// table call: print { 1, 2, 3}
+// string call : print "abcdef"
