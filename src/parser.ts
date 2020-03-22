@@ -20,7 +20,8 @@ import {
     IndexExpression,
     ReturnStatement,
     TableConstructorExpression,
-    CallStatement
+    CallStatement,
+    Base
 } from 'luaparse';
 
 // LuaTokenType
@@ -58,16 +59,19 @@ export enum BlockType {
     Punctuator = 6, // 运算符(如 + = % >=)
     CallExpr = 7, // 函数调用
     Identifier = 8, // 变量名，如 a.b.c
+    IndexExpr = 9, // 索引取值，如tbl[idx]
+    memberExpr = 10, // 取成员变量，如a.b或者a:b
 }
 
 interface BaseBlock<T> {
     bType: T;
-    aboveCmt?: TokenEx[];
-    rightCmt?: TokenEx[];
+    aboveCmt?: CommentBlock;
+    rightCmt?: CommentBlock;
 }
 
 /** 独立注释 */
 export interface CommentBlock extends BaseBlock<BlockType.Comment> {
+    line: number;
     body: TokenEx[];
 }
 
@@ -104,7 +108,8 @@ export interface PunctuatorBlock extends BaseBlock<BlockType.Punctuator> {
 
 /** 函数调用 */
 export interface CallBlock extends BaseBlock<BlockType.CallExpr> {
-    name: TokenEx[];
+    method: "()" | "" | "{}";
+    name: Block;
     args: Block[];
 }
 
@@ -113,60 +118,64 @@ export interface IdentifierBlock extends BaseBlock<BlockType.Identifier> {
     body: TokenEx[];
 }
 
+// 索引成员
+export interface IndexExprBlock extends BaseBlock<BlockType.IndexExpr> {
+    body: ExpressionBlock;
+}
+
+// 访问成员变量 a.b.c
+export interface MemberExprBlock extends BaseBlock<BlockType.memberExpr> {
+    indexer: ":" | ".";
+    body: IdentifierBlock;
+}
+
 export type Block = FunctionBlock | CommentBlock | AssignmentBlock
     | ExpressionBlock | ConstBlock | PunctuatorBlock | CallBlock
     | IdentifierBlock;
 
 export class Parser {
-    private index = 0; // tokens的下标
+    private index = -1; // tokens的下标
     private tokens = new Array<TokenEx>();
     private blocks = new Array<Block>();
+
+    private token: TokenEx | null = null;
 
     private error(message?: string, token?: TokenEx) {
         let syntax = new SyntaxError(message);
         throw syntax;
     }
 
-    private peek(): TokenEx | null {
+    private next() {
+        this.index++;
         if (this.index >= this.tokens.length) {
+            this.token = null;
             return null;
         }
 
-        return this.tokens[this.index];
-    }
+        this.token = this.tokens[this.index];
 
-    private next() {
-        this.index++;
+        return this.token;
     }
 
     // 消耗一个token
     private consume(value?: string): TokenEx | null {
-        if (this.index >= this.tokens.length) {
+        const token = this.token;
+        if (!token || (value && token.value !== value)) {
             return null;
         }
 
-        const token = this.tokens[this.index];
-        if (!value || token.value === value) {
-            this.index++;
-            return token;
-        }
-
-        return null;
+        this.next();
+        return token;
     }
 
     // 检测下一个token是否为想要的token
-    private expect(tokenType: LTT, value?: string) {
-        const index = this.index;
-        if (index >= this.tokens.length) {
-            return false;
+    private expect(value: string) {
+        if (!this.token || this.token.value !== value) {
+            this.error(`expect: ${value}`);
+            return null;
         }
 
-        const token = this.tokens[index];
-        if (token.type === tokenType && (!value || value === token.value)) {
-            return true;
-        }
-
-        return false;
+        return this.next();
     }
 
     // 词法解析
@@ -210,12 +219,12 @@ export class Parser {
     private parseIdentifier(): IdentifierBlock {
         let identifier = new Array<TokenEx>();
 
-        let token = this.peek();
+        let token = this.token;
         while (token) {
             if (token.type === LTT.Identifier
                 || token.value === "." || token.value === ":") {
                 identifier.push(token);
-                this.next();
+                token = this.next();
             } else {
                 break;
             }
@@ -228,8 +237,8 @@ export class Parser {
     }
 
     // 解析连续的注释
-    private parseComment(): TokenEx[] | null {
-        let token = this.peek();
+    private parseComment(): CommentBlock | null {
+        let token = this.token;
 
         // 先判断一次，如果不是注释避免创建下面的数组
         if (!token || token.type !== LTT.Comment) {
@@ -241,7 +250,7 @@ export class Parser {
         while (token) {
             // 遇到非注释代码，则当前注释不是独立的，返回给其他代码块处理
             if (token.type !== LTT.Comment) {
-                return comments;
+                break;
             }
 
             // 一个注释块，必须是连续的，如果中间有空行，那就不算连续
@@ -253,15 +262,14 @@ export class Parser {
             lastLine = token.line;
             comments.push(token);
 
-            this.next();
-            token = this.peek();
+            token = this.next();
         }
 
-        this.blocks.push({
+        return {
             bType: BlockType.Comment,
+            line: lastLine,
             body: comments
-        });
-        return null;
+        };
     }
 
     // 解析函数声明
@@ -270,33 +278,31 @@ export class Parser {
         let name = this.parseIdentifier();
 
         // 参数
-        let token;
+        this.expect("(");
         let paramters = new Array<TokenEx>();
         do {
-            token = this.consume();
-            if (!token || token.value === ")") {
+            let token = this.token;
+            if (!token) {
                 break;
             }
 
-            if (token.value === ",") {
-                continue;
-            }
-
             paramters.push(token);
+            token = this.next();
 
             // inline注释
-            while (this.expect(LTT.Comment)) {
+            while (token && token.type === LTT.Comment) {
                 if (!token.inlineCmt) {
                     token.inlineCmt = new Array<TokenEx>();
                 }
-                token.inlineCmt.push(this.consume()!);
+                token.inlineCmt.push(token);
+                token = this.next();
             }
-        } while (true);
+        } while (this.consume(","));
+        this.expect(")"); // 函数参数结束
 
         // 函数内容
         // 函数结束
-        const endToken = this.consume();
-        assert(endToken && endToken.value === "end");
+        this.expect("end");
 
         return {
             bType: BlockType.Function,
@@ -304,13 +310,13 @@ export class Parser {
             name: name,
             parameters: paramters,
             body: [],
-            end: endToken!
+            end: this.token!
         };
     }
 
     // 解析local声明
     private parseLocalStatement(): Block {
-        const token = this.consume();
+        const token = this.token;
         if (!token) {
             this.error("expect local statement");
         }
@@ -338,8 +344,24 @@ export class Parser {
         return false;
     }
 
-    private parseCallExpression(base: ExpressionBlock) {
+    /**
+     * 解释函数调用
+     * @param name 函数名
+     * IdentifierBlock ::= a.b.c()
+     * MemberExprBlock ::= a:b()
+     * IndexExprBlock  ::= list[idx]()
+     * CallBlock       ::= get():()
+     */
+    private parseCallExpression(name: Block): CallBlock {
 
+        let block: CallBlock = {
+            bType: BlockType.CallExpr,
+            name: name,
+            args: [],
+            method: "",
+        };
+
+        return block;
     }
 
     // 参考lua parse parsePrefixExpression
@@ -350,69 +372,78 @@ export class Parser {
     //     -> test[index] | test.a | test:b | (a, b, c)
     //
     //     args ::= '(' [explist] ')' | tableconstructor | String
-    private parsePrefixExpression() {
-        let base;
-
-        let token = this.peek();
+    private parsePrefixExpression(): ExpressionBlock | null {
+        let token = this.token;
         if (!token) {
             return null;
         }
 
         // The prefix 开始解释前缀
+        let base;
         if (LTT.Identifier === token.type) {
             // a.b.c(1,2,3)中的a.b.c
             base = this.parseIdentifier();
         } else if (this.consume('(')) {
             // (tbl)带括号的前缀
             base = this.parseExpectedExpression();
-            expect(')');
-        } else {
+            this.expect(')');
+        }
+
+        // 没有前缀，则肯定不是前缀表达式。 not ok这种就没有前缀
+        if (!base) {
             return null;
         }
 
+        let exprBlock: ExpressionBlock = {
+            bType: BlockType.Expression,
+            body: []
+        };
+
         // The suffix
-        var expression, identifier;
+        // 一个表达式可能嵌套，需要循环解析。如 list[idx].get():test()
         while (true) {
-            if (LTT.Punctuator === token.type) {
-                switch (token.value) {
-                    case '[':
-                        // 数组索引 test[1 + 2]
-                        this.next();
-                        expression = this.parseExpectedExpression();
-                        // base = finishNode(ast.indexExpression(base, expression));
-                        expect(']');
-                        break;
-                    case '.':
-                        // 成员 a.b
-                        this.next();
-                        identifier = this.parseIdentifier();
-                        //base = finishNode(ast.memberExpression(base, '.', identifier));
-                        break;
-                    case ':':
-                        // 成员 a:b
-                        this.next();
-                        identifier = this.parseIdentifier();
-                        //base = finishNode(ast.memberExpression(base, ':', identifier));
-                        // Once a : is found, this has to be a CallExpression, otherwise
-                        // throw an error.
-                        base = this.parseCallExpression(base);
-                        break;
-                    case '(': case '{': // args
-                        // 函数调用 print(a, b, c) | print {1, 2, 3}
-                        base = this.parseCallExpression(base);
-                        break;
-                    default:
-                        return base;
-                }
-            } else if (LTT.StringLiteral === token.type) {
+            if (LTT.StringLiteral === token.type) {
                 // string call: print "abcdef"
                 base = this.parseCallExpression(base);
-            } else {
+                continue;
+            }
+            if (LTT.Punctuator !== token.type) {
                 break;
+            }
+            switch (token.value) {
+                case '[':
+                    // 数组索引 test[1 + 2]
+                    this.next();
+                    let expression = this.parseExpectedExpression();
+                    // base = finishNode(ast.indexExpression(base, expression));
+                    this.expect(']');
+                    break;
+                case '.':
+                    // 成员 a.b
+                    this.next();
+                    //let identifier = this.parseIdentifier();
+                    //base = finishNode(ast.memberExpression(base, '.', identifier));
+                    break;
+                case ':':
+                    // 成员 a:b
+                    this.next();
+                    // let identifier = this.parseIdentifier();
+                    //base = finishNode(ast.memberExpression(base, ':', identifier));
+                    // Once a : is found, this has to be a CallExpression, otherwise
+                    // throw an error.
+                    base = this.parseCallExpression(base);
+                    break;
+                case '(': case '{': // args
+                    // 函数调用 print(a, b, c) | print {1, 2, 3}
+                    base = this.parseCallExpression(base);
+                    break;
+                default:
+                    exprBlock.body.push(base);
+                    return exprBlock;
             }
         }
 
-        return base;
+        return exprBlock;
     }
 
     /**
@@ -458,12 +489,14 @@ export class Parser {
     // 对代码进行语法解析并格式化
     // 参考 luaparse.js parseStatement
     private doParse() {
-        while (this.index < this.tokens.length - 1) {
-            const comments = this.parseComment();
-
-            const token = this.peek();
-            if (!token) {
-                break;
+        this.next();
+        while (this.token) {
+            let cmtBlock = this.parseComment();
+            // 如果当前注释不和下面的代码连在一起，则是独立的注释
+            const token = this.token;
+            if (cmtBlock && (!token || token.lineStart !== cmtBlock.line)) {
+                this.blocks.push(cmtBlock);
+                continue;
             }
 
             let block: Block | null = null;
@@ -484,8 +517,8 @@ export class Parser {
                 }
 
                 if (block) {
-                    if (comments) {
-                        block.aboveCmt = comments;
+                    if (cmtBlock) {
+                        block.aboveCmt = cmtBlock;
                     }
                     this.blocks.push(block);
                 }

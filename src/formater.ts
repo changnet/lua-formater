@@ -5,6 +5,10 @@ import {
     BlockType,
     CommentBlock,
     FunctionBlock,
+    IdentifierBlock,
+    IndexExprBlock,
+    AssignmentBlock,
+    MemberExprBlock,
     Parser,
 } from "./parser";
 
@@ -48,6 +52,13 @@ export class Formater {
         this.appendFormated(setting.lineBreak); // 相隔空行
     }
 
+    // 格式化变量名
+    private formatIdentifier(identifier: IdentifierBlock) {
+        for (const token of identifier.body) {
+            this.appendFormated(token.value);
+        }
+    }
+
     // 格式化函数
     private formatFunction(block: FunctionBlock) {
         // 注释
@@ -55,9 +66,7 @@ export class Formater {
         this.appendFormated("function ");
 
         // 函数名
-        for (const token of block.name) {
-            this.appendFormated(token.value);
-        }
+        this.formatIdentifier(block.name);
 
         // 参数
         let first = true;
