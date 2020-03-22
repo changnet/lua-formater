@@ -131,7 +131,7 @@ export interface MemberExprBlock extends BaseBlock<BlockType.memberExpr> {
 
 export type Block = FunctionBlock | CommentBlock | AssignmentBlock
     | ExpressionBlock | ConstBlock | PunctuatorBlock | CallBlock
-    | IdentifierBlock;
+    | IdentifierBlock | IndexExprBlock | MemberExprBlock;
 
 export class Parser {
     private index = -1; // tokens的下标
@@ -373,14 +373,13 @@ export class Parser {
     //
     //     args ::= '(' [explist] ')' | tableconstructor | String
     private parsePrefixExpression(): ExpressionBlock | null {
-        let token = this.token;
-        if (!token) {
+        if (!this.token) {
             return null;
         }
 
         // The prefix 开始解释前缀
         let base;
-        if (LTT.Identifier === token.type) {
+        if (LTT.Identifier === this.token.type) {
             // a.b.c(1,2,3)中的a.b.c
             base = this.parseIdentifier();
         } else if (this.consume('(')) {
@@ -402,44 +401,66 @@ export class Parser {
         // The suffix
         // 一个表达式可能嵌套，需要循环解析。如 list[idx].get():test()
         while (true) {
+            const token = this.token;
             if (LTT.StringLiteral === token.type) {
                 // string call: print "abcdef"
-                base = this.parseCallExpression(base);
+                let callExpr = this.parseCallExpression(base);
+                if (callExpr) {
+                    exprBlock.body.push(callExpr);
+                }
                 continue;
             }
             if (LTT.Punctuator !== token.type) {
                 break;
             }
+            let subExpr: Block | null = null;
             switch (token.value) {
                 case '[':
                     // 数组索引 test[1 + 2]
                     this.next();
-                    let expression = this.parseExpectedExpression();
-                    // base = finishNode(ast.indexExpression(base, expression));
+                    let expr = this.parseExpectedExpression();
                     this.expect(']');
+                    if (expr) {
+                        subExpr = {
+                            bType: BlockType.IndexExpr,
+                            body: expr,
+                        };
+                    }
                     break;
                 case '.':
                     // 成员 a.b
                     this.next();
-                    //let identifier = this.parseIdentifier();
-                    //base = finishNode(ast.memberExpression(base, '.', identifier));
+                    let identifier = this.parseIdentifier();
+                    subExpr = {
+                        bType: BlockType.memberExpr,
+                        body: identifier,
+                        indexer: ".",
+                    };
                     break;
                 case ':':
                     // 成员 a:b
                     this.next();
-                    // let identifier = this.parseIdentifier();
-                    //base = finishNode(ast.memberExpression(base, ':', identifier));
+                    let callBase: MemberExprBlock = {
+                        bType: BlockType.memberExpr,
+                        body: this.parseIdentifier(),
+                        indexer: ":",
+                    };
                     // Once a : is found, this has to be a CallExpression, otherwise
                     // throw an error.
-                    base = this.parseCallExpression(base);
+                    // 即你不能写 local a = M:test + 1这种代码
+                    subExpr = this.parseCallExpression(callBase);
                     break;
                 case '(': case '{': // args
                     // 函数调用 print(a, b, c) | print {1, 2, 3}
-                    base = this.parseCallExpression(base);
+                    subExpr = this.parseCallExpression(base);
                     break;
                 default:
                     exprBlock.body.push(base);
                     return exprBlock;
+            }
+
+            if (subExpr) {
+                exprBlock.body.push(subExpr);
             }
         }
 
