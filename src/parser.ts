@@ -64,9 +64,9 @@ export class Parser {
             return false;
         }
 
-        this.index += 1;
         this.cmt = this.comments[this.index];
 
+        this.index += 1;
         return true;
     }
 
@@ -128,10 +128,10 @@ export class Parser {
     private doParse(text: string) {
         let options: Options = {
             locations: true, // 是否记录语法节点的位置(node)
-            scope: true, // 是否记录作用域
+            scope: false, // 是否记录作用域
             wait: false, // 是否等待显示调用end函数
             comments: true, // 是否记录注释
-            ranges: true, // 记录语法节点的字符位置(第几个字符开始，第几个结束)
+            ranges: false, // 记录语法节点的字符位置(第几个字符开始，第几个结束)
             luaVersion: "5.3",
             onCreateNode: () => { },
             onCreateScope: () => { },
@@ -140,26 +140,93 @@ export class Parser {
             extendedIdentifiers: false
         };
 
-        return luaParse(text, options);
+        let chunk = luaParse(text, options);
+
+        this.body = chunk.body;
+        this.comments = chunk.comments as any as Comment[];
     }
 
-    // 插入注释
-    private injectComment() {
-        let body: Node[] = [];
-        for (let node of this.body) {
+    /**
+     * 注入注释，直到注释的位置不在node之前
+     * @param node 对比位置的node
+     * @param list 需要注入注释的列表
+     */
+    private until(node: Node, list: Node[]) {
+        while (this.cmt) {
+            let pos = Parser.nodeComp(this.cmt!, node);
+            if (1 !== pos) {
+                return pos;
+            }
+
+            list.push(this.cmt);
+            this.next();
+        }
+
+        return 0;
+    }
+
+    private injectNode(node: Node) {
+        switch (node.type) {
+            case "LocalStatement": break;
+        }
+    }
+
+    private injectNodes(nodes: Node[]) {
+        let cmtNodes: Node[] = [];
+        for (let node of nodes) {
             // 没有注释需要处理了
-            if (!this.next()) {
-                body.push(node);
+            if (!this.cmt) {
+                cmtNodes.push(node);
                 continue;
             }
 
-            let pos = Parser.nodeComp(this.cmt!, node)
+            let pos = this.until(node, cmtNodes);
+            cmtNodes.push(node);
             switch (pos) {
-                case 1: body.push(this.cmt!); break;
-                case 2: break;
+                case 0:
+                    // 没有注释需要处理了
+                    break;
+                case 1:
+                    // 这个应该在until里处理了
+                    assert(false, "impossiable position 1");
+                    break;
+                case 2:
+                    // 注释不可能包含代码
+                    assert(false, "impossiable position 2");
+                    break;
                 case -1:
-                case -2: break;
+                    // 下一个注释在此节点之后，不用处理注释
+                    continue;
+                case -2:
+                    // 注释包含在代码之中，需要进行节点解析处理
+                    this.injectNode(node);
+                    break;
             }
+
+            this.next();
+        }
+
+        return cmtNodes;
+    }
+
+    /**
+     * 插入注释
+     * 并列关系的，直接插入一个Comment Node，如在顶层的文档注释，和其他node并列
+     * 归属关系的，附加到对应的node里。 如: test(a, b --[[abc]], c) -- def
+     */
+    private injectComment() {
+        // 没有任何注释
+        if (!this.next()) {
+            return this.body;
+        }
+
+        // 把注释注入到语法节点
+        let body = this.injectNodes(this.body);
+
+        // 语法结点注释完成，记录多出的注释
+        while (this.cmt) {
+            body.push(this.cmt);
+            this.next();
         }
 
         return body;
