@@ -11,18 +11,16 @@ let fmt = new Formater(setting.parseSetting());
 
 // test comment
 const comment = `-- abc
+local a = false
+
 -- def
-
--- xyz
-
---[[123]] --[[456]]
 `;
 console.log(fmt.format(comment));
 
 // test function
 fmt = new Formater(setting.parseSetting());
 const func = `function a.test( a, b , c ) end`;
-console.log(fmt.format(func));
+//console.log(fmt.format(func));
 
 // test expression
 const expression = `local a,b,c=not true,1 + test(#list, {
