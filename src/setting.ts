@@ -5,6 +5,7 @@ export interface SettingCtx {
     indent: " " | "\t";
     indentWidth: number;
     lineBreak: "\n" | "\r\n";
+    maxEmptyLine: number;
 
     indentOffset: number;
 }
@@ -20,12 +21,16 @@ export class Setting {
 
     private lineBreak: "\n" | "\r\n" = "\n"; // 换行 \r\n or \n
 
+    // 保留的最大空行数量
+    private maxEmptyLine: number = 1;
+
     private toCtx(): SettingCtx {
         return {
             indent: this.indent,
             indentWidth: this.indentWidth,
             lineBreak: this.lineBreak,
             indentOffset: 0,
+            maxEmptyLine: this.maxEmptyLine,
         };
     }
 

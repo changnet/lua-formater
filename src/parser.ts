@@ -25,19 +25,15 @@ import {
     CallStatement,
     Base
 } from 'luaparse';
+import { AnyARecord } from 'dns';
 
-// LuaTokenType
-enum LTT {
-    EOF = 1,
-    StringLiteral = 2,
-    Keyword = 4,
-    Identifier = 8,
-    NumericLiteral = 16,
-    Punctuator = 32,
-    BooleanLiteral = 64,
-    NilLiteral = 128,
-    VarargLiteral = 256,
-    Comment = 512,
+// comment type
+export enum CommentType {
+    CT_LEFT,   // 在左边的注释，如：local --[[comment]] val = true
+    CT_RIGHT,  // 在右边的注释，如：local val -- comment 
+    // CT_INSIDE, // 在内部的注释，如：local tbl = { --[[comment]] }
+    CT_MAX
+
 }
 
 export interface Location {
@@ -49,11 +45,12 @@ export interface Location {
         line: number;
         column: number;
     };
-};
+}
 
 export class Parser {
     private index = 0;
     private cmt: Comment | null = null;
+    private last: Node | null = null;
 
     private body: Node[] = [];
     private comments: Comment[] = [];
@@ -75,15 +72,15 @@ export class Parser {
      * @return number, -1: src < dst,1: src > dst, 2:src包含dst, -2: dst包含src
      */
     public static locationComp(src: Location, dst: Location): number {
-        const sel = src.end.line
-        const ssl = src.start.line
-        const sec = src.end.column
-        const ssc = src.start.column
+        const sel = src.end.line;
+        const ssl = src.start.line;
+        const sec = src.end.column;
+        const ssc = src.start.column;
 
-        const del = dst.end.line
-        const dsl = dst.start.line
-        const dec = dst.end.column
-        const dsc = dst.start.column
+        const del = dst.end.line;
+        const dsl = dst.start.line;
+        const dec = dst.end.column;
+        const dsc = dst.start.column;
 
         if (sel < dsl) {
             return 1;
@@ -122,6 +119,13 @@ export class Parser {
 
     public static nodeComp(src: Node, dst: Node) {
         return Parser.locationComp(src.loc!, dst.loc!);
+    }
+
+    /**
+     * 判断两个节点是否在同一行，仅适用于只占一行的节点
+     */
+    public static nodeSameLine(src: Node, dst: Node) {
+        return src.loc!.end.line === dst.loc!.end.line;
     }
 
     // 对代码进行语法解析
@@ -165,13 +169,113 @@ export class Parser {
         return 0;
     }
 
-    private injectNode(node: Node) {
-        switch (node.type) {
-            case "LocalStatement": break;
+    /**
+     * 把注释注入到具体语法节点
+     * @param node 
+     * @param cmt 
+     * @param cty 
+     */
+    private inject(node: Node, cty: CommentType) {
+        assert(this.cmt);
+        // 一个节点可能存在多条注释，如 local a --[[abc]] --[[def]]
+        let cmtNode = node as any;
+
+        if (!cmtNode.__cmt) {
+            cmtNode.__cmt = new Array<Comment[]>(CommentType.CT_MAX);
+        }
+        cmtNode.__cmt[cty].push(this.cmt);
+
+        this.next();
+    }
+
+    /**
+     * 把某个节点之前(或之后)的注释全部注入到节点Node
+     * @param node 需要注入的节点，该节点必须是一个不可再拆分的节点，如 Identenfier
+     * @param pos 节点之前(或之后)
+     */
+    private injectUntil(node: Node, pos: number) {
+        let cty: CommentType =
+            -1 === pos ? CommentType.CT_LEFT : CommentType.CT_RIGHT;
+
+        this.inject(node, cty);
+        while (this.cmt && pos === Parser.nodeComp(this.cmt, node)) {
+            this.inject(node, cty);
         }
     }
 
-    private injectNodes(nodes: Node[]) {
+    /**
+     * 把注释注入到注释前一个语法节点
+     * @param node 需要注入的节点，该节点必须是一个不可再拆分的节点，如 Identenfier
+     */
+    private injectIntoAny(node: Node) {
+        // 注入到a: local a -- abc
+        // 注入到b: local a, b -- abc
+
+        let cmt = this.cmt;
+        if (!cmt) {
+            return;
+        }
+
+        let pos = Parser.nodeComp(cmt, node);
+        if (!this.last) {
+            // 没有上一个语法节点，比如 local --[[abc]] val = true
+            // 那么只能注入到val中
+            if (-1 === pos) {
+                this.injectUntil(node, CommentType.CT_LEFT);
+            }
+            this.last = node;
+            return;
+        }
+
+        // 注释在上一个节点和当前节点之间，注入到上一个节点
+        if (1 === pos) {
+            this.injectUntil(this.last, CommentType.CT_RIGHT);
+            this.last = node;
+            return;
+        }
+
+        assert(false); // node已经是不可分隔节点，不会出现2 -2等位置情况
+    }
+
+    private injectIntoExpression(expr: Expression[]) {
+
+    }
+
+    private injectIntoLocalStatement(node: LocalStatement) {
+        for (let val of node.variables) {
+            if (!this.cmt) {
+                return;
+            }
+            this.injectIntoAny(val);
+        }
+
+        /**
+         * 对于这种数组，里面的节点又不是不可拆分的语法节点，转换成一个数组来存储
+         * 不然像下面这个例子，abc这个注释放到fase，或者函数里都不对，将会出现错误
+         * local a, b = 
+         *  false,
+         *   -- abc
+         *  function(a, b) end
+         */
+        let exprs: Node[] = [];
+        for (let expr of node.init) {
+            exprs.push(expr);
+        }
+
+        (node as any).__init = this.injectIntoNodes(exprs);
+    }
+
+    private injectIntoNode(node: Node) {
+        switch (node.type) {
+            case "LocalStatement": this.injectIntoLocalStatement(node); break;
+            default:
+                console.log(`unknow node type ${node.type}`);
+                assert(false);
+                break;
+        }
+    }
+
+    private injectIntoNodes(nodes: Node[]) {
         let cmtNodes: Node[] = [];
         for (let node of nodes) {
             // 没有注释需要处理了
@@ -199,7 +303,7 @@ export class Parser {
                     continue;
                 case -2:
                     // 注释包含在代码之中，需要进行节点解析处理
-                    this.injectNode(node);
+                    this.injectIntoNode(node);
                     break;
             }
 
@@ -221,7 +325,7 @@ export class Parser {
         }
 
         // 把注释注入到语法节点
-        let body = this.injectNodes(this.body);
+        let body = this.injectIntoNodes(this.body);
 
         // 语法结点注释完成，记录多出的注释
         while (this.cmt) {

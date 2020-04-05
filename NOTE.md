@@ -122,3 +122,18 @@ https://github.com/llvm-mirror/clang/blob/master/tools/clang-format/ClangFormat.
 * parseChunk
 * parseBlock
 
+## limitation
+* 在非语法节点中的注释，无法正确注入
+```lua
+local --[[abc]] function test()
+end
+-- 这里的abc牌 local function之前，luaparse解析时这两者之前不会产生任何语法节点
+```
+
+```lua
+local a, b = 
+  false,
+  -- abc
+  function(a, b)
+  end
+```
