@@ -11,7 +11,11 @@ let fmt = new Formater(setting.parseSetting());
 
 // test comment
 const comment = `-- abc
-local a = false
+local a = function()
+    local tbl = {
+        -- some empty things
+    }
+end
 
 -- def
 `;

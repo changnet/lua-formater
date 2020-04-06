@@ -52,7 +52,6 @@ export class Parser {
     private cmt: Comment | null = null;
     private last: Node | null = null;
 
-    private body: Node[] = [];
     private comments: Comment[] = [];
 
     private next() {
@@ -83,19 +82,19 @@ export class Parser {
         const dsc = dst.start.column;
 
         if (sel < dsl) {
-            return 1;
+            return -1;
         }
 
         if (sel === dsl && sec < dsc) {
-            return 1;
+            return -1;
         }
 
         if (ssl > del) {
-            return -1;
+            return 1;
         }
 
         if (ssl === del && ssc > dec) {
-            return -1;
+            return 1;
         }
 
         /**
@@ -146,8 +145,8 @@ export class Parser {
 
         let chunk = luaParse(text, options);
 
-        this.body = chunk.body;
         this.comments = chunk.comments as any as Comment[];
+        return chunk;
     }
 
     /**
@@ -157,8 +156,8 @@ export class Parser {
      */
     private until(node: Node, list: Node[]) {
         while (this.cmt) {
-            let pos = Parser.nodeComp(this.cmt!, node);
-            if (1 !== pos) {
+            let pos = Parser.nodeComp(this.cmt, node);
+            if (-1 !== pos) {
                 return pos;
             }
 
@@ -182,6 +181,9 @@ export class Parser {
 
         if (!cmtNode.__cmt) {
             cmtNode.__cmt = new Array<Comment[]>(CommentType.CT_MAX);
+            for (let i = 0; i < CommentType.CT_MAX; i++) {
+                cmtNode.__cmt[i] = [];
+            }
         }
         cmtNode.__cmt[cty].push(this.cmt);
 
@@ -237,10 +239,6 @@ export class Parser {
         assert(false); // node已经是不可分隔节点，不会出现2 -2等位置情况
     }
 
-    private injectIntoExpression(expr: Expression[]) {
-
-    }
-
     private injectIntoLocalStatement(node: LocalStatement) {
         for (let val of node.variables) {
             if (!this.cmt) {
@@ -250,24 +248,45 @@ export class Parser {
         }
 
         /**
-         * 对于这种数组，里面的节点又不是不可拆分的语法节点，转换成一个数组来存储
+         * 对于这种数组，里面的节点不属于不可拆分的语法节点，需要转换成一个数组来存储
          * 不然像下面这个例子，abc这个注释放到fase，或者函数里都不对，将会出现错误
          * local a, b = 
          *  false,
          *   -- abc
          *  function(a, b) end
          */
-        let exprs: Node[] = [];
-        for (let expr of node.init) {
-            exprs.push(expr);
+        (node as any).__init = this.injectIntoNodes(node.init, node.loc!);
+    }
+
+    private injectIntoFunction(node: FunctionDeclaration) {
+        let identifier = node.identifier;
+        if (identifier) {
+            this.injectIntoAny(identifier);
         }
 
-        (node as any).__init = this.injectIntoNodes(exprs);
+        let cmtNode = node as any;
+        cmtNode.__parameters = this.injectIntoNodes(node.parameters, node.loc!);
+        cmtNode.__body = this.injectIntoNodes(node.body, node.loc!);
+    }
+
+    private injectInfoTableConstructor(node: TableConstructorExpression) {
+        let cmtNode = node as any;
+        cmtNode.__fields = this.injectIntoNodes(node.fields, node.loc!);
     }
 
     private injectIntoNode(node: Node) {
+        // 清除上一个节点，last只用于某个节点内部的关系判断，不用于两个并行节点的判断
+        this.last = null;
         switch (node.type) {
-            case "LocalStatement": this.injectIntoLocalStatement(node); break;
+            case "LocalStatement":
+                this.injectIntoLocalStatement(node);
+                break;
+            case "FunctionDeclaration":
+                this.injectIntoFunction(node);
+                break;
+            case "TableConstructorExpression":
+                this.injectInfoTableConstructor(node);
+                break;
             default:
                 console.log(`unknow node type ${node.type}`);
                 assert(false);
@@ -275,7 +294,16 @@ export class Parser {
         }
     }
 
-    private injectIntoNodes(nodes: Node[]) {
+    private injectIntoNodes(nodes: Node[], loc: Location) {
+        if (!this.cmt) {
+            return nodes;
+        }
+
+        // 注释必须在上层父节点的范围内，否则就是有注释漏处理了，放到了其他节点处理
+        // TODO: 如果以注释开始，则chunk的范围不包含注释的范围，看下这个是bug还是
+        // 需要特殊处理
+        // assert(-2 === Parser.locationComp(this.cmt.loc!, loc));
+
         let cmtNodes: Node[] = [];
         for (let node of nodes) {
             // 没有注释需要处理了
@@ -284,6 +312,7 @@ export class Parser {
                 continue;
             }
 
+            // 把当前节点之前的注释全部插入到数组之中
             let pos = this.until(node, cmtNodes);
             cmtNodes.push(node);
             switch (pos) {
@@ -291,16 +320,16 @@ export class Parser {
                     // 没有注释需要处理了
                     break;
                 case 1:
-                    // 这个应该在until里处理了
-                    assert(false, "impossiable position 1");
-                    break;
+                    // 注释在当前Node之后，等下一个循环处理
+                    continue;
                 case 2:
                     // 注释不可能包含代码
                     assert(false, "impossiable position 2");
                     break;
                 case -1:
-                    // 下一个注释在此节点之后，不用处理注释
-                    continue;
+                    // 注释在当前Node之前，这个应该在until里处理了
+                    assert(false, "impossiable position -1");
+                    break;
                 case -2:
                     // 注释包含在代码之中，需要进行节点解析处理
                     this.injectIntoNode(node);
@@ -310,35 +339,19 @@ export class Parser {
             this.next();
         }
 
-        return cmtNodes;
-    }
-
-    /**
-     * 插入注释
-     * 并列关系的，直接插入一个Comment Node，如在顶层的文档注释，和其他node并列
-     * 归属关系的，附加到对应的node里。 如: test(a, b --[[abc]], c) -- def
-     */
-    private injectComment() {
-        // 没有任何注释
-        if (!this.next()) {
-            return this.body;
-        }
-
-        // 把注释注入到语法节点
-        let body = this.injectIntoNodes(this.body);
-
         // 语法结点注释完成，记录多出的注释
-        while (this.cmt) {
-            body.push(this.cmt);
+        while (this.cmt && Parser.locationComp(this.cmt.loc!, loc)) {
+            cmtNodes.push(this.cmt);
             this.next();
         }
 
-        return body;
+        return cmtNodes;
     }
 
     public parse(text: string) {
-        this.doParse(text);
+        let chunk = this.doParse(text);
 
-        return this.injectComment();
+        this.next();
+        return this.injectIntoNodes(chunk.body, chunk.loc!);
     }
 }
