@@ -125,15 +125,38 @@ https://github.com/llvm-mirror/clang/blob/master/tools/clang-format/ClangFormat.
 ## limitation
 * 在非语法节点中的注释，无法正确注入
 ```lua
-local --[[abc]] function test()
+local --[[abc]] function test( --[[def]] )
+    -- xyz
 end
--- 这里的abc牌 local function之前，luaparse解析时这两者之前不会产生任何语法节点
+
+-- 这里的abc与 local function之前，luaparse解析时这两者之前不会产生任何语法节点
+-- def与xyz之间，是没有语法节点的
+-- 处理的话，用range去检测原始的代码，判断它们的位置
+
+test(a, --[[eee]] b, c)
+-- 现在eee是放到a中作为尾注释的，因为逗号不是语法节点，知道a、b之前有一个注释
+-- 但不知道在逗号之前还是之后，也考虑用range去判断一下
 ```
 
 ```lua
-local a, b = 
-  false,
-  -- abc
-  function(a, b)
-  end
+-- 必须是多行的，在ctx中返回就是多行的，但还未处理缩进
+-- 返回后加上处理即可
+-- 如
+local function a() end
+local function b() end
+
+-- 原来是一行的，返回加上缩进后，变成多行
+-- 全部格式化成多行，返回后，如果计算得出可入一行，则再将多行拼成一行
+-- 如
+local a = function(a, b, c) test(a, b, c) end
+local a = function(a, b, c)
+  test(a, b, c)
+end
+
+-- 如果不去计算下一层，则上一层无法确定是否换行
+-- 上一层没有格式化，则下一层缩进断行未确定，也无法格式化，最终回溯到最顶层，都只得到各种ctx
+-- 
+
+-- 先遍历一次，计算长度，以及是否必须换行(如存在单行注释测必须换行)把这些信息都附加到节点上
+-- 再遍历一次，计算出换行点，得出格式化
 ```

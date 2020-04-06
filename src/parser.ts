@@ -255,29 +255,38 @@ export class Parser {
          *   -- abc
          *  function(a, b) end
          */
-        (node as any).__init = this.injectIntoNodes(node.init, node.loc!);
+        (node as any).__init = this.injectIntoNodes(node.init);
     }
 
     private injectIntoFunction(node: FunctionDeclaration) {
         let identifier = node.identifier;
         if (identifier) {
-            this.injectIntoAny(identifier);
+            this.injectIntoNode(identifier);
         }
 
         let cmtNode = node as any;
-        cmtNode.__parameters = this.injectIntoNodes(node.parameters, node.loc!);
-        cmtNode.__body = this.injectIntoNodes(node.body, node.loc!);
+
+        // TODO
+        // function(--[[abc]]) end
+        // 这里的注释 abc 是识别不出来在参数里还是在函数里的
+        cmtNode.__parameters = this.injectIntoNodes(node.parameters);
+        cmtNode.__body = this.injectIntoNodesRange(node.body, node.loc!);
     }
 
     private injectInfoTableConstructor(node: TableConstructorExpression) {
         let cmtNode = node as any;
-        cmtNode.__fields = this.injectIntoNodes(node.fields, node.loc!);
+        cmtNode.__fields = this.injectIntoNodesRange(node.fields, node.loc!);
     }
 
     private injectIntoNode(node: Node) {
         // 清除上一个节点，last只用于某个节点内部的关系判断，不用于两个并行节点的判断
         this.last = null;
         switch (node.type) {
+            case "Identifier":
+                this.injectIntoAny(node);
+                break;
+            case "MemberExpression":
+                break;
             case "LocalStatement":
                 this.injectIntoLocalStatement(node);
                 break;
@@ -294,15 +303,15 @@ export class Parser {
         }
     }
 
-    private injectIntoNodes(nodes: Node[], loc: Location) {
+    /**
+     * 注入注释到节点列表
+     * @param nodes 
+     * @param loc chunk的loc不包含前后注释
+     */
+    private injectIntoNodes(nodes: Node[]) {
         if (!this.cmt) {
             return nodes;
         }
-
-        // 注释必须在上层父节点的范围内，否则就是有注释漏处理了，放到了其他节点处理
-        // TODO: 如果以注释开始，则chunk的范围不包含注释的范围，看下这个是bug还是
-        // 需要特殊处理
-        // assert(-2 === Parser.locationComp(this.cmt.loc!, loc));
 
         let cmtNodes: Node[] = [];
         for (let node of nodes) {
@@ -321,7 +330,7 @@ export class Parser {
                     break;
                 case 1:
                     // 注释在当前Node之后，等下一个循环处理
-                    continue;
+                    break;
                 case 2:
                     // 注释不可能包含代码
                     assert(false, "impossiable position 2");
@@ -335,12 +344,27 @@ export class Parser {
                     this.injectIntoNode(node);
                     break;
             }
-
-            this.next();
         }
 
+        return cmtNodes;
+    }
+
+    private injectIntoNodesRange(nodes: Node[], loc?: Location) {
+        if (!this.cmt) {
+            return nodes;
+        }
+
+        // 注释必须在上层父节点的范围内，否则就是有注释漏处理了，放到了其他节点处理
+        // TODO: 如果以注释开始，则chunk的范围不包含注释的范围，看下这个是bug还是
+        // 需要特殊处理
+        if (loc) {
+            assert(-2 === Parser.locationComp(this.cmt.loc!, loc));
+        }
+
+        let cmtNodes = this.injectIntoNodes(nodes);
         // 语法结点注释完成，记录多出的注释
-        while (this.cmt && Parser.locationComp(this.cmt.loc!, loc)) {
+        while (this.cmt
+            && (!loc || -2 === Parser.locationComp(this.cmt.loc!, loc))) {
             cmtNodes.push(this.cmt);
             this.next();
         }
@@ -352,6 +376,8 @@ export class Parser {
         let chunk = this.doParse(text);
 
         this.next();
-        return this.injectIntoNodes(chunk.body, chunk.loc!);
+
+        // chunk.loc不包含前后的注释范围
+        return this.injectIntoNodesRange(chunk.body);
     }
 }

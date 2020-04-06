@@ -31,6 +31,14 @@ import {
     SettingCtx
 } from "./setting";
 
+// 格式化所需要的上下文
+interface FormatCtx {
+    length: number;
+    lines: string[];
+    lineCnt: number;
+    indent: number;
+}
+
 export class Formater {
     private formatedCtx = ""; // 格式化后的内容
 
@@ -56,29 +64,47 @@ export class Formater {
     }
 
     private breakLine() {
-        this.formatedCtx += this.setting.lineBreak;
+        return this.setting.lineBreak;
+    }
+    private indentLine(ctx: FormatCtx) {
+        return this.setting.indent.repeat(ctx.indent);
     }
 
     /**
-     * 
+     * 格式化一个不可分隔的节点
      * @param node 
      * @param raw 
      */
-    private formatAny(node: Node, raw: string) {
+    private formatAny(node: Node, raw: string): FormatCtx {
         let cmtNode = node as any;
 
+        let ctx: FormatCtx = {
+            length: 0,
+            lines: [],
+            lineCnt: 1,
+            indent: 0
+        };
+
         if (!cmtNode.__cmt) {
-            this.appendFormated(raw, node.loc!.end.line);
-            return;
+            ctx.length = raw.length;
+            ctx.lines.push(raw);
+            return ctx;
         }
 
+        // 加上左右注释，如 --[[123]] --[[123]] local a -- 123
+        let text = "";
         for (let cmt of cmtNode.__cmt[CommentType.CT_LEFT]) {
-            this.formatComment(cmt as Comment);
+            text += (cmt as Comment).raw;
         }
-        this.appendFormated(raw, node.loc!.end.line);
+        text += raw;
         for (let cmt of cmtNode.__cmt[CommentType.CT_RIGHT]) {
-            this.formatComment(cmt as Comment);
+            text += (cmt as Comment).raw;
         }
+
+        ctx.length = text.length;
+        ctx.lines.push(text);
+
+        return ctx;
     }
 
     /**
@@ -103,32 +129,128 @@ export class Formater {
      * 格式化注释
      * @param node 
      */
-    private formatComment(node: Comment) {
-        this.appendFormated(node.raw, node.loc!.end.line);
+    private formatComment(node: Comment): FormatCtx {
+        // TODO: 多行注释
+        return {
+            length: node.raw.length,
+            lines: [node.raw],
+            lineCnt: 1,
+            indent: 0
+        };
     }
 
-    private formatLocalStatement(node: LocalStatement) {
+    private formatLocalStatement(node: LocalStatement): FormatCtx {
+        let ctx: FormatCtx = {
+            length: 0,
+            lines: [],
+            lineCnt: 0,
+            indent: 0,
+        };
         this.appendFormated("local ");
         for (const val of node.variables) {
             this.formatAny(val, val.name);
         }
 
-        let __init = (node as any).__init as Node[];
-        this.formatNodes(__init || node.init);
+        let init = (node as any).__init as Node[];
+        if (init.length <= 0) {
+            return ctx;
+        }
+
+        this.appendFormated(" = ");
+        this.formatNodes(init);
+
+        return ctx;
+    }
+
+    private formatMemberExpression(node: MemberExpression) {
+
+    }
+
+    private formatFunction(node: FunctionDeclaration): FormatCtx {
+        let ctx: FormatCtx = {
+            length: 0,
+            lines: [],
+            lineCnt: 0,
+            indent: 0,
+        };
+        if (node.isLocal) {
+            this.appendFormated("local ");
+        }
+
+        this.appendFormated("function ");
+
+        let identifier = node.identifier;
+        if (identifier) {
+            this.formatNode(identifier);
+        }
+
+        this.appendFormated("(");
+        this.appendFormated(") ");
+
+        this.formatNodes((node as any).__body);
+
+        this.appendFormated(" end");
+
+        return ctx;
+    }
+
+    private formatTableConstructor(node: TableConstructorExpression) {
+        let fields: Node[] = (node as any).__fields;
+
+        let ctx: FormatCtx = {
+            length: 0,
+            lines: [],
+            lineCnt: 0,
+            indent: 0,
+        };
+
+        this.appendFormated("{");
+        if (fields.length > 0) {
+            this.breakLine();
+            this.formatNodes(fields);
+            this.breakLine();
+        }
+
+        this.appendFormated("}");
+
+        return ctx;
+    }
+
+    private formatNode(node: Node): FormatCtx {
+        switch (node.type) {
+            case "Comment":
+                return this.formatComment(node);
+            case "Identifier":
+                return this.formatAny(node, node.name);
+            case "LocalStatement":
+                return this.formatLocalStatement(node);
+            case "FunctionDeclaration":
+                return this.formatFunction(node);
+            case "TableConstructorExpression":
+                return this.formatTableConstructor(node);
+        }
+
+        console.log(`formater unknow ast node type ${node.type}`);
+        return {
+            length: 0,
+            lines: [],
+            lineCnt: 0,
+            indent: 0
+        };
     }
 
     private formatNodes(nodes: Node[]) {
+        let ctxs: FormatCtx[] = [];
         for (const node of nodes) {
-            this.formatEmptyLine(node);
-            switch (node.type) {
-                case "Comment": this.formatComment(node); break;
-                case "LocalStatement": this.formatLocalStatement(node); break;
-            }
+            ctxs.push(this.formatNode(node));
         }
+
+        return ctxs;
     }
 
     private doFormat(nodes: Node[]) {
         console.log(JSON.stringify(nodes));
+
         this.formatNodes(nodes);
     }
 
